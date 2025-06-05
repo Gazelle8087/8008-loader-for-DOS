@@ -349,7 +349,7 @@ read_emulator:
 		mov	es,ax
 		mov	ax,3d00h
 		mov	dx,offset em_file_name0		;search current dir
-		call	disp_file_name
+;		call	disp_file_name
 		int	21h
 		jnc	read_em_4
 
@@ -380,7 +380,7 @@ read_em_3:
 
 		mov	ax,3d00h
 		mov	dx,offset em_file_name
-		call	disp_file_name
+;		call	disp_file_name
 		int	21h
 		jnc	read_em_4
 		jmp	em_open_error
@@ -470,7 +470,7 @@ read_cpm_08:	std
 
 		mov	ax,3d00h
 		mov	dx,offset cpm_file_name
-		call	disp_file_name
+;		call	disp_file_name
 		int	21h
 		jc	read_cpm_10
 		mov	start_addr,100h
@@ -486,7 +486,7 @@ read_cpm_09:
 		stosb
 		mov	ax,3d00h
 		mov	dx,offset cpm_file_name
-		call	disp_file_name
+;		call	disp_file_name
 		int	21h
 		jc	read_cpm_11
 		mov	start_addr,00h

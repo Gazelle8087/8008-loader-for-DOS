@@ -1,0 +1,852 @@
+Microsoft (R) Macro Assembler Version 6.00AD    	    06/05/25 18:57:39
+8008.ASM						     Page 1 - 1
+
+
+				;	i8008 program loader for generic MS-DOS
+				;
+				;	Copyright (C) 2025 by Gazelle
+				;
+				;Permission is hereby granted, free of charge, to any person
+				;obtaining a copy of this software and associated documentation
+				;files (the "Software"), to deal in the Software without
+				;restriction, including without limitation the rights to use,
+				;copy, modify, merge, publish, distribute, sublicense, and/or sell
+				;copies of the Software, and to permit persons to whom the
+				;Software is furnished to do so, subject to the following
+				;conditions:
+				;
+				;The above copyright notice and this permission notice shall be
+				;included in all copies or substantial portions of the Software.
+				;
+				;THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+				;EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+				;OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+				;NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+				;HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+				;WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+				;FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
+				;OTHER DEALINGS IN THE SOFTWARE.
+
+				;Repository https://github.com/Gazelle8087/8008-loader-for-DOS
+				;
+				;2025/6/5 Rev. 1.00 Initial release
+
+						page 0,180
+						.model	tiny
+ 0000						.code
+
+ = 00FB				code_step	equ	0fbh
+ = 00FC				code_undef1	equ	0fch
+ = 00FD				code_HLT_00	equ	0fdh
+ = 00FE				code_HLT_01	equ	0feh
+ = 00FF				code_HLT_FF	equ	0ffh
+						org	100h
+
+						assume	ds:nothing,es:nothing,ss:nothing
+
+ 0100  E9 0249			start:		jmp	hajime
+
+						align	2
+ 0104  0008 [			stack80		dw	8 dup (0)
+        0000
+       ]
+ 0114 0000			save_bp		dw	?
+ 0116 0000			save_si		dw	?
+ 0118 0000			save_ax		dw	?
+ 011A 0000			save_bx		dw	?
+ 011C 0000			save_cx		dw	?
+ 011E 0000			save_dx		dw	?
+ 0120 0000			z80_seg		dw	?
+ 0122 0000			em_file_handle	dw	?
+ 0124 0000			cpm_file_handle	dw	?
+ 0126 0000			cpm_arg_offset	dw	?
+ 0128 0000			fcb_addr	dw	?
+ 012A 00			path_flag	db	0
+ 012B 00			env_flag	db	0
+ 012C 00			drv_flag	db	0
+ 012D 0000			file_name_end	dw	?
+ 012F 0000			start_addr	dw	0
+ 0131 10			disp_counter	db	16
+
+ 0132 2E 43 4F 38 00		cpm_str		db	'.CO8',0
+ 0137 2E 38 30 38 00		i808_str	db	'.808',0
+ 013C 5A 5F 45 4D 3D		env_key		db	'Z_EM='
+ 0141 38 30 30 38 45 4D		em_file_name0	db	'8008EM.BIN',0
+       2E 42 49 4E 00
+ 014C				em_file_name0_end:
+ 014C  0080 [			env_str		db	128 dup (0)
+        00
+       ]
+ 01CC  0080 [			em_file_name	db	128 dup (?)
+        00
+       ]
+ 024C  0080 [			cpm_file_name	db	128 dup (?)
+        00
+       ]
+ 02CC  0080 [			buffer_area	db	128 dup (?)
+        00
+       ]
+
+				;---------------------------------------------
+
+ 034C  8C C8			hajime:		mov	ax,cs
+ 034E  8E C0					mov	es,ax
+ 0350  8E D8					mov	ds,ax
+ 0352  BA 04F7 R				mov	dx,offset open_msg
+ 0355  B4 09					mov	ah,9
+ 0357  CD 21					int	21h
+ 0359  B4 4A					mov	ah,4ah		;192KB écÇµÇƒÉÅÉÇÉääJï˙
+ 035B  BB 3001					mov	bx,3001h
+ 035E  CD 21					int	21h
+ 0360  73 03					jnc	main_read_emulator
+ 0362  E9 0301					jmp	no_mem
+ 0365				main_read_emulator:
+ 0365  8C C8					mov	ax,cs
+ 0367  8E D0					mov	ss,ax
+ 0369  BC F000					mov	sp,0f000h
+ 036C  05 1000					add	ax,1000h
+ 036F  A9 0001					test	ax,1
+ 0372  74 01					jz	em_seg_even
+ 0374  40					inc	ax
+ 0375  2E: A3 03CA R		em_seg_even:	mov	em_seg,ax
+ 0379  05 1000					add	ax,1000h
+ 037C  2E: A3 0120 R				mov	z80_seg,ax
+
+ 0380  E8 0304					call	search_env
+
+ 0383  E8 036C					call	read_emulator
+
+ 0386  E8 03E8					call	read_cpm_file
+				;--------------------------------------
+ 0389  2E: 8E 1E 0120 R				mov	ds,z80_seg
+ 038E  2E: 8E 06 0120 R				mov	es,z80_seg
+ 0393  2E: 8B 36 012F R				mov	si,start_addr	;PC reg of 8008
+ 0398  BD 0000					mov	bp,0		;SP internal reg for 8008
+ 039B  2E: 89 36 0116 R				mov	save_si,si
+
+ 03A0  BA 0080					mov	dx,80h
+ 03A3  B4 1A					mov	ah,1ah
+ 03A5  CD 21					int	21h
+ 03A7  FC					cld
+ 03A8				go_cpm:
+ 03A8				no_op:
+ 03A8  2E: 8B 16 011E R				mov	dx,save_dx
+ 03AD  2E: 8B 0E 011C R				mov	cx,save_cx
+ 03B2  2E: 8B 1E 011A R				mov	bx,save_bx
+ 03B7  2E: A1 0118 R				mov	ax,save_ax
+ 03BB  2E: 8B 36 0116 R				mov	si,save_si
+ 03C0  2E: 8B 2E 0114 R				mov	bp,save_bp
+ 03C5  33 FF					xor	di,di
+
+ 03C7  9A					db	09ah		;CALL far
+ 03C8  00E0					dw	0e0h		;8008 emulator entry point
+ 03CA 0000			EM_SEG		dw	?		;emulator loading segment
+
+ 03CC  2E: 89 2E 0114 R				mov	save_bp,bp
+ 03D1  2E: A3 0118 R				mov	save_ax,ax
+ 03D5  2E: 89 1E 011A R				mov	save_bx,bx
+ 03DA  2E: 89 0E 011C R				mov	save_cx,cx
+ 03DF  2E: 89 16 011E R				mov	save_dx,dx
+ 03E4  2E: 89 36 0116 R				mov	save_si,si
+
+ 03E9  83 FF 00			chk_bp_00:	cmp	di,0		;DI=00h then IN 00 console status
+ 03EC  75 0C					jne	chk_bp_01
+ 03EE  B4 0B					mov	ah,0bh
+ 03F0  CD 21					int	21h
+ 03F2  0C 04					or	al,04		;always conout ready
+ 03F4  2E: A2 0118 R				mov	byte ptr save_ax,al
+ 03F8  EB AE					jmp	go_cpm
+
+ 03FA  83 FF 01			chk_bp_01:	cmp	di,1		;DI=01h then IN 01 console input
+ 03FD  75 0A					jne	chk_bp_10
+ 03FF  B4 07					mov	ah,7
+ 0401  CD 21					int	21h
+ 0403  2E: A2 0118 R				mov	byte ptr save_ax,al
+ 0407  EB 9F					jmp	go_cpm
+
+ 0409  83 FF 10			chk_bp_10:	cmp	di,10h		;DI=10h then OUT 10 console output
+ 040C  75 0E					jne	chk_bp_1f
+ 040E  3C FF					cmp	al,0ffh
+ 0410  75 02					jne	chk_bp_11
+ 0412  33 C0					xor	ax,ax
+ 0414  8A D0			chk_bp_11:	mov	dl,al
+ 0416  B4 06					mov	ah,6
+ 0418  CD 21					int	21h
+ 041A  EB 8C					jmp	go_cpm
+
+ 041C  83 FF 1F			chk_bp_1f:	cmp	di,1fh
+ 041F  75 12					jne	chk_bp_fe
+ 0421  8C C8					mov	ax,cs
+ 0423  8E D8					mov	ds,ax
+ 0425  8E C0					mov	es,ax
+ 0427  B4 09					mov	ah,9
+ 0429  BA 0482 R				mov	dx,offset Exit_msg
+ 042C  CD 21					int	21h
+ 042E  B8 4C00					mov	ax,4c00h
+ 0431  CD 21					int	21h
+
+ 0433  81 FF 00FE		chk_bp_fe:	cmp	di,0feh		;DI(return code) = 0feh : HLT(code 01)
+ 0437  75 63					jne	z80_error
+ 0439  80 F9 28					cmp	cl,40		;28h
+ 043C  77 5E					ja	z80_error
+ 043E  8A E1					mov	ah,cl
+ 0440  CD 21					int	21h		;DOS function act as supervisor call
+ 0442  2E: A3 0118 R				mov	save_ax,ax
+ 0446  2E: 89 1E 011A R				mov	save_bx,bx
+ 044B  2E: 89 0E 011C R				mov	save_cx,cx
+ 0450  2E: 89 16 011E R				mov	save_dx,dx
+ 0455  E9 FF50					jmp	go_cpm
+
+				;---------------------------------
+ 0458 55 6E 64 65 66 69		Z80em_undef_msg		db	'Undefined code $'
+       6E 65 64 20 63 6F
+       64 65 20 24
+ 0468 55 6E 65 78 65 63		Z80em_unexec_msg	db	'Unexecutable code $'
+       75 74 61 62 6C 65
+       20 63 6F 64 65 20
+       24
+ 047B 20 61 74 20 24		Z80em_error_msg		db	' at $'
+ 0480 0000			z80em_err_addr		dw	?
+ 0482 45 78 69 74 20 66		Exit_msg		db	'Exit from 8008 emulator',0dh,0ah,'$'
+       72 6F 6D 20 38 30
+       30 38 20 65 6D 75
+       6C 61 74 6F 72 0D
+       0A 24
+
+ 049C  BA 0468 R		Z80_error:	mov	dx,offset z80em_unexec_msg
+ 049F  B9 0001					mov	cx,1
+ 04A2  BB 0001					mov	bx,1
+ 04A5  83 FF 20					cmp	di,20h
+ 04A8  72 1D					jb	z80_error_0
+ 04AA  81 FF 00FB				cmp	di,code_step
+ 04AE  73 03 E9 01C2				jb	z80em_internal_error
+ 04B3  81 FF 0100				cmp	di,100h
+ 04B7  72 03 E9 01B9				jae	z80em_internal_error
+ 04BC  81 FF 00FD				cmp	di,code_HLT_00
+ 04C0  76 05					jbe	z80_error_0
+
+ 04C2  BA 0458 R				mov	dx,offset z80em_undef_msg
+ 04C5  EB 00					jmp	z80_error_0
+
+ 04C7  8C C8			z80_error_0:	mov	ax,cs
+ 04C9  8E D8					mov	ds,ax
+ 04CB  B4 09					mov	ah,9
+ 04CD  CD 21					int	21h
+
+ 04CF  2B F3					sub	si,bx
+ 04D1  2E: 89 36 0480 R				mov	z80em_err_addr,si
+ 04D6  2E: 8E 06 0120 R				mov	es,z80_seg
+ 04DB				z80_error_6:
+ 04DB  26: 8A 04				mov	al,es:[si]
+ 04DE  E8 03CE					call	dsphex2
+ 04E1  46					inc	si
+ 04E2  E2 F7					loop	z80_error_6
+ 04E4  BA 047B R				mov	dx,offset z80em_error_msg
+ 04E7  B4 09					mov	ah,9
+ 04E9  CD 21					int	21h
+ 04EB  2E: A1 0480 R				mov	ax,z80em_err_addr
+ 04EF  E8 03B2					call	dsphex4
+ 04F2  B8 4C00					mov	ax,4c00h
+ 04F5  CD 21					int	21h
+
+				;======================================
+ 04F7 69 38 30 30 38 20		open_msg		db	'i8008 simulator loader for DOS Rev. 1.00  '
+       73 69 6D 75 6C 61
+       74 6F 72 20 6C 6F
+       61 64 65 72 20 66
+       6F 72 20 44 4F 53
+       20 52 65 76 2E 20
+       31 2E 30 30 20 20
+ 0521  43 6F 70 79 72 69				db	'Copyright (c) 2025 by Gazelle',0dh,0ah,0ah,24h
+       67 68 74 20 28 63
+       29 20 32 30 32 35
+       20 62 79 20 47 61
+       7A 65 6C 6C 65 0D
+       0A 0A 24
+ 0542 4E 6F 20 65 6E 6F		no_mem_msg		db	'No enough memory.$'
+       75 67 68 20 6D 65
+       6D 6F 72 79 2E 24
+ 0554 38 30 30 38 45 4D		em_open_error_msg	db	'8008EM.BIN open error.$'
+       2E 42 49 4E 20 6F
+       70 65 6E 20 65 72
+       72 6F 72 2E 24
+ 056B 38 30 30 38 45 4D		em_read_error_msg	db	'8008EM.BIN read error.$'
+       2E 42 49 4E 20 72
+       65 61 64 20 65 72
+       72 6F 72 2E 24
+ 0582 38 30 30 38 45 4D		em_close_error_msg	db	'8008EM.BIN close error.$'
+       2E 42 49 4E 20 63
+       6C 6F 73 65 20 65
+       72 72 6F 72 2E 24
+ 059A 38 30 30 38 20 65		cpm_open_error_msg	db	'8008 executable file open error.$'
+       78 65 63 75 74 61
+       62 6C 65 20 66 69
+       6C 65 20 6F 70 65
+       6E 20 65 72 72 6F
+       72 2E 24
+ 05BB 38 30 30 38 20 65		cpm_read_error_msg	db	'8008 executable file read error.$'
+       78 65 63 75 74 61
+       62 6C 65 20 66 69
+       6C 65 20 72 65 61
+       64 20 65 72 72 6F
+       72 2E 24
+ 05DC 38 30 30 38 20 65		cpm_close_error_msg	db	'8008 executable file close error.$'
+       78 65 63 75 74 61
+       62 6C 65 20 66 69
+       6C 65 20 63 6C 6F
+       73 65 20 65 72 72
+       6F 72 2E 24
+ 05FE 74 6F 6F 20 6C 6F		too_long_path_msg	db	'too long path.$'
+       6E 67 20 70 61 74
+       68 2E 24
+ 060D 74 6F 6F 20 6C 61		too_large_com_msg	db	'too large 8008 executable file.$'
+       72 67 65 20 38 30
+       30 38 20 65 78 65
+       63 75 74 61 62 6C
+       65 20 66 69 6C 65
+       2E 24
+ 062D 38 30 30 38 45 4D		internal_error_msg	db	'8008EM.BIN internal error.$'
+       2E 42 49 4E 20 69
+       6E 74 65 72 6E 61
+       6C 20 65 72 72 6F
+       72 2E 24
+
+ 0648  BA 0582 R		em_close_error:	mov	dx,offset em_close_error_msg
+ 064B  EB 2D					jmp	error_exit
+ 064D  BA 0554 R		em_open_error:	mov	dx,offset em_open_error_msg
+ 0650  EB 28					jmp	error_exit
+ 0652  BA 056B R		em_read_error:	mov	dx,offset em_read_error_msg
+ 0655  EB 23					jmp	error_exit
+ 0657  BA 05DC R		cpm_close_error:mov	dx,offset cpm_close_error_msg
+ 065A  EB 1E					jmp	error_exit
+ 065C  BA 059A R		cpm_open_error:	mov	dx,offset cpm_open_error_msg
+ 065F  EB 19					jmp	error_exit
+ 0661  BA 05BB R		cpm_read_error:	mov	dx,offset cpm_read_error_msg
+ 0664  EB 14					jmp	error_exit
+ 0666  BA 0542 R		no_mem:		mov	dx,offset no_mem_msg
+ 0669  EB 0F					jmp	error_exit
+ 066B  BA 05FE R		too_long_path:	mov	dx,offset too_long_path_msg
+ 066E  EB 0A					jmp	error_exit
+ 0670  BA 060D R		too_large_com:	mov	dx,offset too_large_com_msg
+ 0673  EB 05					jmp	error_exit
+ 0675				z80em_internal_error:
+ 0675  BA 062D R				mov	dx,offset internal_error_msg
+ 0678  EB 00					jmp	error_exit
+
+ 067A				error_exit:
+ 067A  8C C8					mov	ax,cs
+ 067C  8E D8					mov	ds,ax
+ 067E  B4 09					mov	ah,9
+ 0680  CD 21					int	21h
+ 0682  B8 4C00					mov	ax,4c00h
+ 0685  CD 21					int	21h
+				;======================================
+
+ 0687  8C C8			search_env:	mov	ax,cs
+ 0689  8E C0					mov	es,ax
+ 068B  2E: A1 002C				mov	ax,cs:[002ch]
+ 068F  8E D8					mov	ds,ax
+ 0691  BE 0000					mov	si,0
+ 0694  FC					cld
+
+ 0695				search_env_next_4:
+ 0695  BB FFFF					mov	bx,0ffffh
+ 0698  BF 013C R				mov	di,offset env_key
+ 069B  26: 8A 15				mov	dl,es:[di]
+ 069E  AC					lodsb
+ 069F				search_env_next_2:
+ 069F  3A C2					cmp	al,dl
+ 06A1  74 18					je	search_env_match_1
+ 06A3				search_env_next_3:
+ 06A3  3C 00					cmp	al,0
+ 06A5  74 09					je	search_env_next_5
+ 06A7				search_env_next_1:
+ 06A7  AC					lodsb
+ 06A8  23 F6					and	si,si
+ 06AA  74 3E					je	search_env_exit_1
+ 06AC  3C 00					cmp	al,0
+ 06AE  75 F7					jne	search_env_next_1
+ 06B0				search_env_next_5:
+ 06B0  AC					lodsb
+ 06B1  23 F6					and	si,si
+ 06B3  74 35					je	search_env_exit_1
+ 06B5  3C 00					cmp	al,0
+ 06B7  74 34					je	search_env_exit
+ 06B9  EB E4					jmp	search_env_next_2
+
+ 06BB				search_env_match_1:
+ 06BB  8B DE					mov	bx,si
+ 06BD  4B					dec	bx
+
+ 06BE				search_env_match_3:
+ 06BE  AC					lodsb
+ 06BF  23 F6					and	si,si
+ 06C1  74 27					je	search_env_exit_1
+ 06C3  47					inc	di
+ 06C4  26: 8A 15				mov	dl,es:[di]
+ 06C7  3A C2					cmp	al,dl
+ 06C9  74 0B					je	search_env_match_2
+ 06CB				search_env_match_4:
+ 06CB  3C 00					cmp	al,0
+ 06CD  74 C6					je	search_env_next_4
+ 06CF  AC					lodsb
+ 06D0  23 F6					and	si,si
+ 06D2  74 16					je	search_env_exit_1
+ 06D4  EB F5					jmp	search_env_match_4
+ 06D6				search_env_match_2:
+ 06D6  3C 3D					cmp	al,'='
+ 06D8  75 E4					jne	search_env_match_3
+
+ 06DA  B9 0080					mov	cx,128
+ 06DD  BF 014C R				mov	di,offset env_str
+ 06E0				search_env_get:
+ 06E0  AC					lodsb
+ 06E1  AA					stosb
+ 06E2  3C 00					cmp	al,0
+ 06E4  74 07					je	search_env_exit
+ 06E6  E2 F8					loop	search_env_get
+ 06E8  EB 00					jmp	search_env_exit_1
+
+ 06EA				search_env_exit_1:
+ 06EA  BB FFFF					mov	bx,0ffffh
+ 06ED				search_env_exit:
+ 06ED  8C C8					mov	ax,cs
+ 06EF  8E D8					mov	ds,ax
+ 06F1  C3					ret
+				;================================================
+
+ 06F2				read_emulator:
+ 06F2  8C C8					mov	ax,cs
+ 06F4  8E D8					mov	ds,ax
+ 06F6  8E C0					mov	es,ax
+ 06F8  B8 3D00					mov	ax,3d00h
+ 06FB  BA 0141 R				mov	dx,offset em_file_name0		;search current dir
+ 06FE  E8 01D2					call	disp_file_name
+ 0701  CD 21					int	21h
+ 0703  73 39					jnc	read_em_4
+
+ 0705  BE 014C R				mov	si,offset env_str
+ 0708  BF 01CC R				mov	di,offset em_file_name
+ 070B  FC					cld
+ 070C  AC					lodsb
+ 070D  22 C0					and	al,al
+ 070F  75 03					jnz	read_em_31
+ 0711  E9 FF39					jmp	em_open_error
+ 0714				read_em_31:
+ 0714  AA					stosb
+ 0715  B9 0075					mov	cx,117
+ 0718				read_em_1:
+ 0718  AC					lodsb
+ 0719  22 C0					and	al,al
+ 071B  74 06					jz	read_em_2
+ 071D  AA					stosb
+ 071E  E2 F8					loop	read_em_1
+ 0720  E9 FF48					jmp	too_long_path
+ 0723				read_em_2:
+ 0723  B0 5C					mov	al,'\'
+ 0725  AA					stosb
+ 0726				read_em_3:
+ 0726  BE 0141 R				mov	si,offset em_file_name0
+ 0729  B9 000B					mov	cx,offset em_file_name0_end - offset em_file_name0
+ 072C  F3/ A4					rep	movsb
+
+ 072E  B8 3D00					mov	ax,3d00h
+ 0731  BA 01CC R				mov	dx,offset em_file_name
+ 0734  E8 019C					call	disp_file_name
+ 0737  CD 21					int	21h
+ 0739  73 03		jnc	read_em_4
+ 073B  E9 FF0F					jmp	em_open_error
+ 073E				read_em_4:
+ 073E  2E: A3 0122 R				mov	em_file_handle,ax
+ 0742  8B D8					mov	bx,ax
+ 0744  B4 3F					mov	ah,3fh
+ 0746  B9 FFFF					mov	cx,0ffffh
+ 0749  2E: 8E 1E 03CA R				mov	ds,em_seg
+ 074E  BA 0000					mov	dx,0
+ 0751  CD 21					int	21h
+ 0753  73 03					jnc	read_em_5
+ 0755  E9 FEFA					jmp	em_read_error
+ 0758				read_em_5:
+ 0758  8C C8					mov	ax,cs
+ 075A  8E D8					mov	ds,ax
+ 075C  B4 3E					mov	ah,3eh
+ 075E  2E: 8B 1E 0122 R				mov	bx,em_file_handle
+ 0763  CD 21					int	21h
+ 0765  73 03					jnc	read_em_exit
+ 0767  E9 FEDE					jmp	em_close_error
+ 076A				read_em_exit:
+ 076A  8C C8					mov	ax,cs
+ 076C  8E D8					mov	ds,ax
+ 076E  8E C0					mov	es,ax
+ 0770  C3					ret
+				;================================================
+ 0771				read_cpm_file:
+ 0771				read_cpm_00:
+ 0771  BF 024C R				mov	di,offset cpm_file_name
+ 0774				read_cpm_0:
+ 0774  BE 0081					mov	si,81h
+ 0777  8A 0E 0080				mov	cl,ds:[80h]
+ 077B  B5 00					mov	ch,0
+ 077D  AC			read_cpm_01:	lodsb
+ 077E  3C 20					cmp	al,' '
+ 0780  74 FB					je	read_cpm_01
+ 0782  3C 09					cmp	al,09h
+ 0784  74 F7					je	read_cpm_01
+ 0786  4E					dec	si
+
+ 0787  AC			read_cpm_02:	lodsb
+ 0788  3C 20					cmp	al,' '
+ 078A  74 39					je	read_cpm_03
+ 078C  3C 0D					cmp	al,0dh
+ 078E  74 35					je	read_cpm_03
+ 0790  3C 00					cmp	al,0
+ 0792  74 31					je	read_cpm_03
+ 0794  3C 09					cmp	al,09h
+ 0796  74 2D					je	read_cpm_03
+ 0798  3C 3A					cmp	al,':'
+ 079A  75 1A					jne	read_cpm_04
+ 079C  80 FC 41					cmp	ah,'A'
+ 079F  72 15					jb	read_cpm_04
+ 07A1  80 FC 5A					cmp	ah,'Z'
+ 07A4  76 0A					jbe	read_cpm_06
+ 07A6  80 FC 7A					cmp	ah,'z'
+ 07A9  77 0B					ja	read_cpm_04
+ 07AB  80 FC 61					cmp	ah,'a'
+ 07AE  72 06					jb	read_cpm_04
+ 07B0  2E: C6 06 012C R		read_cpm_06:	mov	drv_flag,1
+       01
+ 07B6  3C 5C			read_cpm_04:	cmp	al,'\'
+ 07B8  75 06					jne	read_cpm_05
+ 07BA  2E: C6 06 012A R				mov	path_flag,1
+       01
+ 07C0  AA			read_cpm_05:	stosb
+ 07C1  8A E0					mov	ah,al
+ 07C3  E2 C2					loop	read_cpm_02
+
+ 07C5  4E			read_cpm_03:	dec	si
+ 07C6  2E: 89 36 0126 R				mov	cpm_arg_offset,si
+ 07CB  2E: 89 3E 012D R				mov	file_name_end,di
+
+ 07D0  4E					dec	si
+ 07D1  B9 0004					mov	cx,4
+ 07D4  FD			read_cpm_08:	std
+ 07D5  AC					lodsb
+ 07D6  3C 2E					cmp	al,'.'
+ 07D8  74 2F					je	read_cpm_09
+ 07DA  E2 F8					loop	read_cpm_08
+
+ 07DC  2E: 8B 3E 012D R				mov	di,file_name_end
+ 07E1  BE 0132 R				mov	si,offset cpm_str
+ 07E4  FC					cld
+ 07E5  A5					movsw
+ 07E6  A5					movsw
+ 07E7  A4					movsb
+
+ 07E8  B8 3D00					mov	ax,3d00h
+ 07EB  BA 024C R				mov	dx,offset cpm_file_name
+ 07EE  E8 00E2					call	disp_file_name
+ 07F1  CD 21					int	21h
+ 07F3  72 09					jc	read_cpm_10
+ 07F5  2E: C7 06 012F R				mov	start_addr,100h
+       0100
+ 07FC  EB 68					jmp	read_cpm_6
+
+ 07FE  2E: 8B 3E 012D R		read_cpm_10:	mov	di,file_name_end
+ 0803  BE 0137 R				mov	si,offset i808_str
+ 0806  FC					cld
+ 0807  A5					movsw
+ 0808  A5					movsw
+ 0809				read_cpm_09:
+ 0809  B0 00					mov	al,0
+ 080B  AA					stosb
+ 080C  B8 3D00					mov	ax,3d00h
+ 080F  BA 024C R				mov	dx,offset cpm_file_name
+ 0812  E8 00BE					call	disp_file_name
+ 0815  CD 21					int	21h
+ 0817  72 09					jc	read_cpm_11
+ 0819  2E: C7 06 012F R				mov	start_addr,00h
+       0000
+ 0820  EB 44					jmp	read_cpm_6
+ 0822				read_cpm_11:
+ 0822  2E: 80 3E 012B R				cmp	env_flag,1
+       01
+ 0828  74 12					je	read_cpm_111
+ 082A  2E: 80 3E 012C R				cmp	drv_flag,1
+       01
+ 0830  74 0A					je	read_cpm_111
+ 0832  2E: 80 3E 012A R				cmp	path_flag,1
+       01
+ 0838  74 02					je	read_cpm_111
+ 083A  EB 03					jmp	read_cpm_12
+ 083C				read_cpm_111:
+ 083C  E9 FE1D					jmp	cpm_open_error
+
+ 083F  2E: C6 06 012B R		read_cpm_12:	mov	env_flag,1
+       01
+ 0845  BE 014C R				mov	si,offset env_str
+ 0848  BF 024C R				mov	di,offset cpm_file_name
+ 084B  FC					cld
+ 084C  AC					lodsb
+ 084D  22 C0					and	al,al
+ 084F  74 EB					jz	read_cpm_111
+ 0851  AA					stosb
+ 0852  B9 007F					mov	cx,127
+ 0855				read_cpm_1:
+ 0855  AC					lodsb
+ 0856  22 C0					and	al,al
+ 0858  74 06					jz	read_cpm_2
+ 085A  AA					stosb
+ 085B  E2 F8					loop	read_cpm_1
+ 085D  E9 FE0B					jmp	too_long_path
+ 0860				read_cpm_2:
+ 0860  B0 5C					mov	al,'\'
+ 0862  AA					stosb
+ 0863				read_cpm_3:
+ 0863  E9 FF0E					jmp	read_cpm_0
+
+ 0866				read_cpm_6:
+ 0866  2E: A3 0124 R				mov	cpm_file_handle,ax
+ 086A  8B D8					mov	bx,ax
+ 086C  B4 3F					mov	ah,3fh
+ 086E  B9 FE00					mov	cx,0fe00h
+ 0871  2E: 8E 1E 0120 R				mov	ds,z80_seg
+ 0876  2E: 8B 16 012F R				mov	dx,start_addr
+ 087B  CD 21					int	21h
+ 087D  73 03					jnc	read_cpm_7
+ 087F  E9 FDDF					jmp	cpm_read_error
+ 0882				read_cpm_7:
+ 0882  23 C0					and	ax,ax
+ 0884  75 03					jnz	read_cpm_71
+ 0886  E9 FDD8					jmp	cpm_read_error
+ 0889				read_cpm_71:
+ 0889  3D FE00					cmp	ax,0fe00h
+ 088C  75 03					jne	read_cpm_8
+ 088E  E9 FDDF					jmp	too_large_com
+ 0891				read_cpm_8:
+ 0891  8C C8					mov	ax,cs
+ 0893  8E D8					mov	ds,ax
+ 0895  B4 3E					mov	ah,3eh
+ 0897  2E: 8B 1E 0124 R				mov	bx,cpm_file_handle
+ 089C  CD 21					int	21h
+ 089E  73 03					jnc	read_cpm_exit
+ 08A0  E9 FDB4					jmp	cpm_close_error
+ 08A3				read_cpm_exit:
+ 08A3  C3					ret
+				;================================================
+ 08A4  52			dsphex4:	push	dx
+ 08A5  8B D0					mov	dx,ax
+ 08A7  8A C4					mov	al,ah
+ 08A9  E8 0003					call	dsphex2
+ 08AC  8B C2					mov	ax,dx
+ 08AE  5A					pop	dx
+
+ 08AF  52			dsphex2:	push	dx
+ 08B0  8A D0					mov	dl,al
+ 08B2  D0 E8					shr	al,1
+ 08B4  D0 E8					shr	al,1
+ 08B6  D0 E8					shr	al,1
+ 08B8  D0 E8					shr	al,1
+ 08BA  E8 0003					call	dsphex1
+ 08BD  8A C2					mov	al,dl
+ 08BF  5A					pop	dx
+
+ 08C0  52			dsphex1:	push	dx
+ 08C1  24 0F					and	al,0fh
+ 08C3  3C 09					cmp	al,9
+ 08C5  76 02					jbe	dsphex1_1
+ 08C7  04 07					add	al,'@'-'9'
+ 08C9  04 30			dsphex1_1:	add	al,'0'
+ 08CB  8A D0					mov	dl,al
+ 08CD  B4 02					mov	ah,2
+ 08CF  CD 21					int	21h
+ 08D1  5A					pop	dx
+ 08D2  C3					ret
+				;======================================
+ 08D3				disp_file_name:
+ 08D3  50					push	ax
+ 08D4  51					push	cx
+ 08D5  52					push	dx
+ 08D6  56					push	si
+ 08D7  8B F2					mov	si,dx
+ 08D9  FC					cld
+ 08DA  B9 0080					mov	cx,128
+ 08DD				disp_file_name_loop:
+ 08DD  AC					lodsb
+ 08DE  3C 00					cmp	al,0
+ 08E0  74 08					je	disp_file_name_exit
+ 08E2  8A D0					mov	dl,al
+ 08E4  B4 02					mov	ah,2
+ 08E6  CD 21					int	21h
+ 08E8  E2 F3					loop	disp_file_name_loop
+ 08EA				disp_file_name_exit:
+ 08EA  B2 0D					mov	dl,0dh
+ 08EC  B4 02					mov	ah,02
+ 08EE  CD 21					int	21h
+ 08F0  B2 0A					mov	dl,0ah
+ 08F2  B4 02					mov	ah,2
+ 08F4  CD 21					int	21h
+ 08F6  5E					pop	si
+ 08F7  5A					pop	dx
+ 08F8  59					pop	cx
+ 08F9  58					pop	ax
+ 08FA  C3					ret
+				;======================================
+					end	start
+ 
+Microsoft (R) Macro Assembler Version 6.00AD    	    06/05/25 18:57:39
+8008.ASM						     Symbols 2 - 1
+
+
+
+
+Segments and Groups:
+
+                N a m e                 Size     Length   Align   Combine Class
+
+DGROUP . . . . . . . . . . . . .	GROUP
+_TEXT  . . . . . . . . . . . . .	16 Bit	 08FB	  Word	  Public  'CODE'	
+_DATA  . . . . . . . . . . . . .	16 Bit	 0000	  Word	  Public  'DATA'	
+
+
+Symbols:
+
+                N a m e                 Type     Value    Attr
+
+@CodeSize  . . . . . . . . . . .	Number	 0000h	 
+@DataSize  . . . . . . . . . . .	Number	 0000h	 
+@Interface . . . . . . . . . . .	Number	 0000h	 
+@Model . . . . . . . . . . . . .	Number	 0001h	 
+@code  . . . . . . . . . . . . .	Text   	 DGROUP
+@data  . . . . . . . . . . . . .	Text   	 DGROUP
+@fardata?  . . . . . . . . . . .	Text   	 FAR_BSS
+@fardata . . . . . . . . . . . .	Text   	 FAR_DATA
+@stack . . . . . . . . . . . . .	Text   	 DGROUP
+EM_SEG . . . . . . . . . . . . .	Word	 03CA	  _TEXT	
+Exit_msg . . . . . . . . . . . .	Byte	 0482	  _TEXT	
+Z80_error  . . . . . . . . . . .	L Near	 049C	  _TEXT	
+Z80em_error_msg  . . . . . . . .	Byte	 047B	  _TEXT	
+Z80em_undef_msg  . . . . . . . .	Byte	 0458	  _TEXT	
+Z80em_unexec_msg . . . . . . . .	Byte	 0468	  _TEXT	
+buffer_area  . . . . . . . . . .	Byte	 02CC	  _TEXT	
+chk_bp_00  . . . . . . . . . . .	L Near	 03E9	  _TEXT	
+chk_bp_01  . . . . . . . . . . .	L Near	 03FA	  _TEXT	
+chk_bp_10  . . . . . . . . . . .	L Near	 0409	  _TEXT	
+chk_bp_11  . . . . . . . . . . .	L Near	 0414	  _TEXT	
+chk_bp_1f  . . . . . . . . . . .	L Near	 041C	  _TEXT	
+chk_bp_fe  . . . . . . . . . . .	L Near	 0433	  _TEXT	
+code_HLT_00  . . . . . . . . . .	Number	 00FDh	 
+code_HLT_01  . . . . . . . . . .	Number	 00FEh	 
+code_HLT_FF  . . . . . . . . . .	Number	 00FFh	 
+code_step  . . . . . . . . . . .	Number	 00FBh	 
+code_undef1  . . . . . . . . . .	Number	 00FCh	 
+cpm_arg_offset . . . . . . . . .	Word	 0126	  _TEXT	
+cpm_close_error_msg  . . . . . .	Byte	 05DC	  _TEXT	
+cpm_close_error  . . . . . . . .	L Near	 0657	  _TEXT	
+cpm_file_handle  . . . . . . . .	Word	 0124	  _TEXT	
+cpm_file_name  . . . . . . . . .	Byte	 024C	  _TEXT	
+cpm_open_error_msg . . . . . . .	Byte	 059A	  _TEXT	
+cpm_open_error . . . . . . . . .	L Near	 065C	  _TEXT	
+cpm_read_error_msg . . . . . . .	Byte	 05BB	  _TEXT	
+cpm_read_error . . . . . . . . .	L Near	 0661	  _TEXT	
+cpm_str  . . . . . . . . . . . .	Byte	 0132	  _TEXT	
+disp_counter . . . . . . . . . .	Byte	 0131	  _TEXT	
+disp_file_name_exit  . . . . . .	L Near	 08EA	  _TEXT	
+disp_file_name_loop  . . . . . .	L Near	 08DD	  _TEXT	
+disp_file_name . . . . . . . . .	L Near	 08D3	  _TEXT	
+drv_flag . . . . . . . . . . . .	Byte	 012C	  _TEXT	
+dsphex1_1  . . . . . . . . . . .	L Near	 08C9	  _TEXT	
+dsphex1  . . . . . . . . . . . .	L Near	 08C0	  _TEXT	
+dsphex2  . . . . . . . . . . . .	L Near	 08AF	  _TEXT	
+dsphex4  . . . . . . . . . . . .	L Near	 08A4	  _TEXT	
+em_close_error_msg . . . . . . .	Byte	 0582	  _TEXT	
+em_close_error . . . . . . . . .	L Near	 0648	  _TEXT	
+em_file_handle . . . . . . . . .	Word	 0122	  _TEXT	
+em_file_name0_end  . . . . . . .	L Near	 014C	  _TEXT	
+em_file_name0  . . . . . . . . .	Byte	 0141	  _TEXT	
+em_file_name . . . . . . . . . .	Byte	 01CC	  _TEXT	
+em_open_error_msg  . . . . . . .	Byte	 0554	  _TEXT	
+em_open_error  . . . . . . . . .	L Near	 064D	  _TEXT	
+em_read_error_msg  . . . . . . .	Byte	 056B	  _TEXT	
+em_read_error  . . . . . . . . .	L Near	 0652	  _TEXT	
+em_seg_even  . . . . . . . . . .	L Near	 0375	  _TEXT	
+env_flag . . . . . . . . . . . .	Byte	 012B	  _TEXT	
+env_key  . . . . . . . . . . . .	Byte	 013C	  _TEXT	
+env_str  . . . . . . . . . . . .	Byte	 014C	  _TEXT	
+error_exit . . . . . . . . . . .	L Near	 067A	  _TEXT	
+fcb_addr . . . . . . . . . . . .	Word	 0128	  _TEXT	
+file_name_end  . . . . . . . . .	Word	 012D	  _TEXT	
+go_cpm . . . . . . . . . . . . .	L Near	 03A8	  _TEXT	
+hajime . . . . . . . . . . . . .	L Near	 034C	  _TEXT	
+i808_str . . . . . . . . . . . .	Byte	 0137	  _TEXT	
+internal_error_msg . . . . . . .	Byte	 062D	  _TEXT	
+main_read_emulator . . . . . . .	L Near	 0365	  _TEXT	
+no_mem_msg . . . . . . . . . . .	Byte	 0542	  _TEXT	
+no_mem . . . . . . . . . . . . .	L Near	 0666	  _TEXT	
+no_op  . . . . . . . . . . . . .	L Near	 03A8	  _TEXT	
+open_msg . . . . . . . . . . . .	Byte	 04F7	  _TEXT	
+path_flag  . . . . . . . . . . .	Byte	 012A	  _TEXT	
+read_cpm_00  . . . . . . . . . .	L Near	 0771	  _TEXT	
+read_cpm_01  . . . . . . . . . .	L Near	 077D	  _TEXT	
+read_cpm_02  . . . . . . . . . .	L Near	 0787	  _TEXT	
+read_cpm_03  . . . . . . . . . .	L Near	 07C5	  _TEXT	
+read_cpm_04  . . . . . . . . . .	L Near	 07B6	  _TEXT	
+read_cpm_05  . . . . . . . . . .	L Near	 07C0	  _TEXT	
+read_cpm_06  . . . . . . . . . .	L Near	 07B0	  _TEXT	
+read_cpm_08  . . . . . . . . . .	L Near	 07D4	  _TEXT	
+read_cpm_09  . . . . . . . . . .	L Near	 0809	  _TEXT	
+read_cpm_0 . . . . . . . . . . .	L Near	 0774	  _TEXT	
+read_cpm_10  . . . . . . . . . .	L Near	 07FE	  _TEXT	
+read_cpm_111 . . . . . . . . . .	L Near	 083C	  _TEXT	
+read_cpm_11  . . . . . . . . . .	L Near	 0822	  _TEXT	
+read_cpm_12  . . . . . . . . . .	L Near	 083F	  _TEXT	
+read_cpm_1 . . . . . . . . . . .	L Near	 0855	  _TEXT	
+read_cpm_2 . . . . . . . . . . .	L Near	 0860	  _TEXT	
+read_cpm_3 . . . . . . . . . . .	L Near	 0863	  _TEXT	
+read_cpm_6 . . . . . . . . . . .	L Near	 0866	  _TEXT	
+read_cpm_71  . . . . . . . . . .	L Near	 0889	  _TEXT	
+read_cpm_7 . . . . . . . . . . .	L Near	 0882	  _TEXT	
+read_cpm_8 . . . . . . . . . . .	L Near	 0891	  _TEXT	
+read_cpm_exit  . . . . . . . . .	L Near	 08A3	  _TEXT	
+read_cpm_file  . . . . . . . . .	L Near	 0771	  _TEXT	
+read_em_1  . . . . . . . . . . .	L Near	 0718	  _TEXT	
+read_em_2  . . . . . . . . . . .	L Near	 0723	  _TEXT	
+read_em_31 . . . . . . . . . . .	L Near	 0714	  _TEXT	
+read_em_3  . . . . . . . . . . .	L Near	 0726	  _TEXT	
+read_em_4  . . . . . . . . . . .	L Near	 073E	  _TEXT	
+read_em_5  . . . . . . . . . . .	L Near	 0758	  _TEXT	
+read_em_exit . . . . . . . . . .	L Near	 076A	  _TEXT	
+read_emulator  . . . . . . . . .	L Near	 06F2	  _TEXT	
+save_ax  . . . . . . . . . . . .	Word	 0118	  _TEXT	
+save_bp  . . . . . . . . . . . .	Word	 0114	  _TEXT	
+save_bx  . . . . . . . . . . . .	Word	 011A	  _TEXT	
+save_cx  . . . . . . . . . . . .	Word	 011C	  _TEXT	
+save_dx  . . . . . . . . . . . .	Word	 011E	  _TEXT	
+save_si  . . . . . . . . . . . .	Word	 0116	  _TEXT	
+search_env_exit_1  . . . . . . .	L Near	 06EA	  _TEXT	
+search_env_exit  . . . . . . . .	L Near	 06ED	  _TEXT	
+search_env_get . . . . . . . . .	L Near	 06E0	  _TEXT	
+search_env_match_1 . . . . . . .	L Near	 06BB	  _TEXT	
+search_env_match_2 . . . . . . .	L Near	 06D6	  _TEXT	
+search_env_match_3 . . . . . . .	L Near	 06BE	  _TEXT	
+search_env_match_4 . . . . . . .	L Near	 06CB	  _TEXT	
+search_env_next_1  . . . . . . .	L Near	 06A7	  _TEXT	
+search_env_next_2  . . . . . . .	L Near	 069F	  _TEXT	
+search_env_next_3  . . . . . . .	L Near	 06A3	  _TEXT	
+search_env_next_4  . . . . . . .	L Near	 0695	  _TEXT	
+search_env_next_5  . . . . . . .	L Near	 06B0	  _TEXT	
+search_env . . . . . . . . . . .	L Near	 0687	  _TEXT	
+stack80  . . . . . . . . . . . .	Word	 0104	  _TEXT	
+start_addr . . . . . . . . . . .	Word	 012F	  _TEXT	
+start  . . . . . . . . . . . . .	L Near	 0100	  _TEXT	
+too_large_com_msg  . . . . . . .	Byte	 060D	  _TEXT	
+too_large_com  . . . . . . . . .	L Near	 0670	  _TEXT	
+too_long_path_msg  . . . . . . .	Byte	 05FE	  _TEXT	
+too_long_path  . . . . . . . . .	L Near	 066B	  _TEXT	
+z80_error_0  . . . . . . . . . .	L Near	 04C7	  _TEXT	
+z80_error_6  . . . . . . . . . .	L Near	 04DB	  _TEXT	
+z80_seg  . . . . . . . . . . . .	Word	 0120	  _TEXT	
+z80em_err_addr . . . . . . . . .	Word	 0480	  _TEXT	
+z80em_internal_error . . . . . .	L Near	 0675	  _TEXT	
+
+	   0 Warnings
+	   0 Errors

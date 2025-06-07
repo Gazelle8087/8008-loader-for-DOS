@@ -1,4 +1,4 @@
-Microsoft (R) Macro Assembler Version 6.00AD    	    06/07/25 15:52:40
+Microsoft (R) Macro Assembler Version 6.00AD    	    06/07/25 15:55:59
 8008.asm						     Page 1 - 1
 
 
@@ -262,13 +262,13 @@ Microsoft (R) Macro Assembler Version 6.00AD    	    06/07/25 15:52:40
  04F5  CD 21					int	21h
 
 				;======================================
- 04F7 69 38 30 30 38 20		open_msg		db	'i8008 simulator loader for DOS Rev. 1.00  '
+ 04F7 69 38 30 30 38 20		open_msg		db	'i8008 simulator loader for DOS Rev. 1.01  '
        73 69 6D 75 6C 61
        74 6F 72 20 6C 6F
        61 64 65 72 20 66
        6F 72 20 44 4F 53
        20 52 65 76 2E 20
-       31 2E 30 30 20 20
+       31 2E 30 31 20 20
  0521  43 6F 70 79 72 69				db	'Copyright (c) 2025 by Gazelle',0dh,0ah,0ah,24h
        67 68 74 20 28 63
        29 20 32 30 32 35
@@ -705,7 +705,7 @@ Microsoft (R) Macro Assembler Version 6.00AD    	    06/07/25 15:52:40
 				;======================================
 					end	start
  
-Microsoft (R) Macro Assembler Version 6.00AD    	    06/07/25 15:52:40
+Microsoft (R) Macro Assembler Version 6.00AD    	    06/07/25 15:55:59
 8008.asm						     Symbols 2 - 1
 
 

@@ -240,7 +240,7 @@ z80_error_6:
 		int	21h
 
 ;======================================
-open_msg		db	'i8008 simulator loader for DOS Rev. 1.00  '
+open_msg		db	'i8008 simulator loader for DOS Rev. 1.01  '
 			db	'Copyright (c) 2025 by Gazelle',0dh,0ah,0ah,24h
 no_mem_msg		db	'No enough memory.$'
 em_open_error_msg	db	'8008EM.BIN open error.$'

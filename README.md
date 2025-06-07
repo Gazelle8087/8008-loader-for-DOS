@@ -65,5 +65,6 @@ https://github.com/Gazelle8087/8008-instruction-executor-for-x86
 MITライセンスとします。
 
 ## 変更履歴
-2025/6/5 Rev. 1.00	初回公開
+2025/6/5 Rev. 1.00 初回公開
+2025/6/7 Rev. 1.01 8008のSPへの割付を変更可能にしました(BPまたはDI)
 

@@ -26,6 +26,7 @@
 ;Repository https://github.com/Gazelle8087/8008-loader-for-DOS
 ;
 ;2025/6/5 Rev. 1.00 Initial release
+;2025/6/7 Rev. 1.01 8008 SP register assignment can be changed(BP or DI)
 
 		page 0,180
 		.model	tiny
@@ -44,7 +45,7 @@ start:		jmp	hajime
 
 		align	2
 stack80		dw	8 dup (0)
-save_bp		dw	?
+save_SP		dw	?
 save_si		dw	?
 save_ax		dw	?
 save_bx		dw	?
@@ -103,10 +104,23 @@ em_seg_even:	mov	em_seg,ax
 
 		call	read_cpm_file
 ;--------------------------------------
+SP08		equ	bp
+;SP08		equ	di
+
+ifidni		SP08,<bp>
+step_counter	equ	di
+exit_code	equ	di
+endif
+
+ifidni		SP08,<di>
+step_counter	equ	bp
+exit_code	equ	bp
+endif
+
 		mov	ds,z80_seg
 		mov	es,z80_seg
 		mov	si,start_addr	;PC reg of 8008
-		mov	bp,0		;SP internal reg for 8008
+		mov	SP08,0		;SP internal reg for 8008
 		mov	save_si,si
 
 		mov	dx,80h
@@ -120,21 +134,21 @@ no_op:
 		mov	bx,save_bx
 		mov	ax,save_ax
 		mov	si,save_si
-		mov	bp,save_bp
-		xor	di,di
+		mov	SP08,save_SP
+		xor	step_counter,step_counter
 
 		db	09ah		;CALL far
 		dw	0e0h		;8008 emulator entry point
 EM_SEG		dw	?		;emulator loading segment
 
-		mov	save_bp,bp
+		mov	save_SP,SP08
 		mov	save_ax,ax
 		mov	save_bx,bx
 		mov	save_cx,cx
 		mov	save_dx,dx
 		mov	save_si,si
 
-chk_bp_00:	cmp	di,0		;DI=00h then IN 00 console status
+chk_bp_00:	cmp	exit_code,0		;DI=00h then IN 00 console status
 		jne	chk_bp_01
 		mov	ah,0bh
 		int	21h
@@ -142,14 +156,14 @@ chk_bp_00:	cmp	di,0		;DI=00h then IN 00 console status
 		mov	byte ptr save_ax,al
 		jmp	go_cpm
 
-chk_bp_01:	cmp	di,1		;DI=01h then IN 01 console input
+chk_bp_01:	cmp	exit_code,1		;DI=01h then IN 01 console input
 		jne	chk_bp_10
 		mov	ah,7
 		int	21h
 		mov	byte ptr save_ax,al
 		jmp	go_cpm
 
-chk_bp_10:	cmp	di,10h		;DI=10h then OUT 10 console output
+chk_bp_10:	cmp	exit_code,10h		;DI=10h then OUT 10 console output
 		jne	chk_bp_1f
 		cmp	al,0ffh
 		jne	chk_bp_11
@@ -159,7 +173,7 @@ chk_bp_11:	mov	dl,al
 		int	21h
 		jmp	go_cpm
 
-chk_bp_1f:	cmp	di,1fh
+chk_bp_1f:	cmp	exit_code,1fh
 		jne	chk_bp_fe
 		mov	ax,cs
 		mov	ds,ax
@@ -170,7 +184,7 @@ chk_bp_1f:	cmp	di,1fh
 		mov	ax,4c00h
 		int	21h
 
-chk_bp_fe:	cmp	di,0feh		;DI(return code) = 0feh : HLT(code 01)
+chk_bp_fe:	cmp	exit_code,0feh		;DI(return code) = 0feh : HLT(code 01)
 		jne	z80_error
 		cmp	cl,40		;28h
 		ja	z80_error
@@ -192,13 +206,13 @@ Exit_msg		db	'Exit from 8008 emulator',0dh,0ah,'$'
 Z80_error:	mov	dx,offset z80em_unexec_msg
 		mov	cx,1
 		mov	bx,1
-		cmp	di,20h
+		cmp	exit_code,20h
 		jb	z80_error_0
-		cmp	di,code_step
+		cmp	exit_code,code_step
 		jb	z80em_internal_error
-		cmp	di,100h
+		cmp	exit_code,100h
 		jae	z80em_internal_error
-		cmp	di,code_HLT_00
+		cmp	exit_code,code_HLT_00
 		jbe	z80_error_0
 
 		mov	dx,offset z80em_undef_msg

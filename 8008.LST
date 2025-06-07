@@ -1,5 +1,5 @@
-Microsoft (R) Macro Assembler Version 6.00AD    	    06/05/25 19:11:51
-8008.ASM						     Page 1 - 1
+Microsoft (R) Macro Assembler Version 6.00AD    	    06/07/25 15:52:40
+8008.asm						     Page 1 - 1
 
 
 				;	i8008 program loader for generic MS-DOS
@@ -30,6 +30,7 @@ Microsoft (R) Macro Assembler Version 6.00AD    	    06/05/25 19:11:51
 				;Repository https://github.com/Gazelle8087/8008-loader-for-DOS
 				;
 				;2025/6/5 Rev. 1.00 Initial release
+				;2025/6/7 Rev. 1.01 8008 SP register assignment can be changed(BP or DI)
 
 						page 0,180
 						.model	tiny
@@ -50,7 +51,7 @@ Microsoft (R) Macro Assembler Version 6.00AD    	    06/05/25 19:11:51
  0104  0008 [			stack80		dw	8 dup (0)
         0000
        ]
- 0114 0000			save_bp		dw	?
+ 0114 0000			save_SP		dw	?
  0116 0000			save_si		dw	?
  0118 0000			save_ax		dw	?
  011A 0000			save_bx		dw	?
@@ -118,10 +119,21 @@ Microsoft (R) Macro Assembler Version 6.00AD    	    06/05/25 19:11:51
 
  0386  E8 03E2					call	read_cpm_file
 				;--------------------------------------
+ = bp				SP08		equ	bp
+				;SP08		equ	di
+
+				ifidni		SP08,<bp>
+ = di				step_counter	equ	di
+ = di				exit_code	equ	di
+				endif
+
+				ifidni		SP08,<di>
+				endif
+
  0389  2E: 8E 1E 0120 R				mov	ds,z80_seg
  038E  2E: 8E 06 0120 R				mov	es,z80_seg
  0393  2E: 8B 36 012F R				mov	si,start_addr	;PC reg of 8008
- 0398  BD 0000					mov	bp,0		;SP internal reg for 8008
+ 0398  BD 0000					mov	SP08,0		;SP internal reg for 8008
  039B  2E: 89 36 0116 R				mov	save_si,si
 
  03A0  BA 0080					mov	dx,80h
@@ -135,21 +147,21 @@ Microsoft (R) Macro Assembler Version 6.00AD    	    06/05/25 19:11:51
  03B2  2E: 8B 1E 011A R				mov	bx,save_bx
  03B7  2E: A1 0118 R				mov	ax,save_ax
  03BB  2E: 8B 36 0116 R				mov	si,save_si
- 03C0  2E: 8B 2E 0114 R				mov	bp,save_bp
- 03C5  33 FF					xor	di,di
+ 03C0  2E: 8B 2E 0114 R				mov	SP08,save_SP
+ 03C5  33 FF					xor	step_counter,step_counter
 
  03C7  9A					db	09ah		;CALL far
  03C8  00E0					dw	0e0h		;8008 emulator entry point
  03CA 0000			EM_SEG		dw	?		;emulator loading segment
 
- 03CC  2E: 89 2E 0114 R				mov	save_bp,bp
+ 03CC  2E: 89 2E 0114 R				mov	save_SP,SP08
  03D1  2E: A3 0118 R				mov	save_ax,ax
  03D5  2E: 89 1E 011A R				mov	save_bx,bx
  03DA  2E: 89 0E 011C R				mov	save_cx,cx
  03DF  2E: 89 16 011E R				mov	save_dx,dx
  03E4  2E: 89 36 0116 R				mov	save_si,si
 
- 03E9  83 FF 00			chk_bp_00:	cmp	di,0		;DI=00h then IN 00 console status
+ 03E9  83 FF 00			chk_bp_00:	cmp	exit_code,0		;DI=00h then IN 00 console status
  03EC  75 0C					jne	chk_bp_01
  03EE  B4 0B					mov	ah,0bh
  03F0  CD 21					int	21h
@@ -157,14 +169,14 @@ Microsoft (R) Macro Assembler Version 6.00AD    	    06/05/25 19:11:51
  03F4  2E: A2 0118 R				mov	byte ptr save_ax,al
  03F8  EB AE					jmp	go_cpm
 
- 03FA  83 FF 01			chk_bp_01:	cmp	di,1		;DI=01h then IN 01 console input
+ 03FA  83 FF 01			chk_bp_01:	cmp	exit_code,1		;DI=01h then IN 01 console input
  03FD  75 0A					jne	chk_bp_10
  03FF  B4 07					mov	ah,7
  0401  CD 21					int	21h
  0403  2E: A2 0118 R				mov	byte ptr save_ax,al
  0407  EB 9F					jmp	go_cpm
 
- 0409  83 FF 10			chk_bp_10:	cmp	di,10h		;DI=10h then OUT 10 console output
+ 0409  83 FF 10			chk_bp_10:	cmp	exit_code,10h		;DI=10h then OUT 10 console output
  040C  75 0E					jne	chk_bp_1f
  040E  3C FF					cmp	al,0ffh
  0410  75 02					jne	chk_bp_11
@@ -174,7 +186,7 @@ Microsoft (R) Macro Assembler Version 6.00AD    	    06/05/25 19:11:51
  0418  CD 21					int	21h
  041A  EB 8C					jmp	go_cpm
 
- 041C  83 FF 1F			chk_bp_1f:	cmp	di,1fh
+ 041C  83 FF 1F			chk_bp_1f:	cmp	exit_code,1fh
  041F  75 12					jne	chk_bp_fe
  0421  8C C8					mov	ax,cs
  0423  8E D8					mov	ds,ax
@@ -185,7 +197,7 @@ Microsoft (R) Macro Assembler Version 6.00AD    	    06/05/25 19:11:51
  042E  B8 4C00					mov	ax,4c00h
  0431  CD 21					int	21h
 
- 0433  81 FF 00FE		chk_bp_fe:	cmp	di,0feh		;DI(return code) = 0feh : HLT(code 01)
+ 0433  81 FF 00FE		chk_bp_fe:	cmp	exit_code,0feh		;DI(return code) = 0feh : HLT(code 01)
  0437  75 63					jne	z80_error
  0439  80 F9 28					cmp	cl,40		;28h
  043C  77 5E					ja	z80_error
@@ -216,13 +228,13 @@ Microsoft (R) Macro Assembler Version 6.00AD    	    06/05/25 19:11:51
  049C  BA 0468 R		Z80_error:	mov	dx,offset z80em_unexec_msg
  049F  B9 0001					mov	cx,1
  04A2  BB 0001					mov	bx,1
- 04A5  83 FF 20					cmp	di,20h
+ 04A5  83 FF 20					cmp	exit_code,20h
  04A8  72 1D					jb	z80_error_0
- 04AA  81 FF 00FB				cmp	di,code_step
+ 04AA  81 FF 00FB				cmp	exit_code,code_step
  04AE  73 03 E9 01C2				jb	z80em_internal_error
- 04B3  81 FF 0100				cmp	di,100h
+ 04B3  81 FF 0100				cmp	exit_code,100h
  04B7  72 03 E9 01B9				jae	z80em_internal_error
- 04BC  81 FF 00FD				cmp	di,code_HLT_00
+ 04BC  81 FF 00FD				cmp	exit_code,code_HLT_00
  04C0  76 05					jbe	z80_error_0
 
  04C2  BA 0458 R				mov	dx,offset z80em_undef_msg
@@ -435,7 +447,7 @@ Microsoft (R) Macro Assembler Version 6.00AD    	    06/05/25 19:11:51
  0711				read_em_31:
  0711  AA					stosb
  0712  B9 0075					mov	cx,117
- 0715				read_em_1:
+ 0715read_em_1:
  0715  AC					lodsb
  0716  22 C0					and	al,al
  0718  74 06					jz	read_em_2
@@ -693,8 +705,8 @@ Microsoft (R) Macro Assembler Version 6.00AD    	    06/05/25 19:11:51
 				;======================================
 					end	start
  
-Microsoft (R) Macro Assembler Version 6.00AD    	    06/05/25 19:11:51
-8008.ASM						     Symbols 2 - 1
+Microsoft (R) Macro Assembler Version 6.00AD    	    06/07/25 15:52:40
+8008.asm						     Symbols 2 - 1
 
 
 
@@ -723,6 +735,7 @@ Symbols:
 @stack . . . . . . . . . . . . .	Text   	 DGROUP
 EM_SEG . . . . . . . . . . . . .	Word	 03CA	  _TEXT	
 Exit_msg . . . . . . . . . . . .	Byte	 0482	  _TEXT	
+SP08 . . . . . . . . . . . . . .	Text   	 bp
 Z80_error  . . . . . . . . . . .	L Near	 049C	  _TEXT	
 Z80em_error_msg  . . . . . . . .	Byte	 047B	  _TEXT	
 Z80em_undef_msg  . . . . . . . .	Byte	 0458	  _TEXT	
@@ -773,6 +786,7 @@ env_flag . . . . . . . . . . . .	Byte	 012B	  _TEXT
 env_key  . . . . . . . . . . . .	Byte	 013C	  _TEXT	
 env_str  . . . . . . . . . . . .	Byte	 014C	  _TEXT	
 error_exit . . . . . . . . . . .	L Near	 067A	  _TEXT	
+exit_code  . . . . . . . . . . .	Text   	 di
 fcb_addr . . . . . . . . . . . .	Word	 0128	  _TEXT	
 file_name_end  . . . . . . . . .	Word	 012D	  _TEXT	
 go_cpm . . . . . . . . . . . . .	L Near	 03A8	  _TEXT	
@@ -816,8 +830,8 @@ read_em_4  . . . . . . . . . . .	L Near	 0738	  _TEXT
 read_em_5  . . . . . . . . . . .	L Near	 0752	  _TEXT	
 read_em_exit . . . . . . . . . .	L Near	 0764	  _TEXT	
 read_emulator  . . . . . . . . .	L Near	 06F2	  _TEXT	
+save_SP  . . . . . . . . . . . .	Word	 0114	  _TEXT	
 save_ax  . . . . . . . . . . . .	Word	 0118	  _TEXT	
-save_bp  . . . . . . . . . . . .	Word	 0114	  _TEXT	
 save_bx  . . . . . . . . . . . .	Word	 011A	  _TEXT	
 save_cx  . . . . . . . . . . . .	Word	 011C	  _TEXT	
 save_dx  . . . . . . . . . . . .	Word	 011E	  _TEXT	
@@ -838,6 +852,7 @@ search_env . . . . . . . . . . .	L Near	 0687	  _TEXT
 stack80  . . . . . . . . . . . .	Word	 0104	  _TEXT	
 start_addr . . . . . . . . . . .	Word	 012F	  _TEXT	
 start  . . . . . . . . . . . . .	L Near	 0100	  _TEXT	
+step_counter . . . . . . . . . .	Text   	 di
 too_large_com_msg  . . . . . . .	Byte	 060D	  _TEXT	
 too_large_com  . . . . . . . . .	L Near	 0670	  _TEXT	
 too_long_path_msg  . . . . . . .	Byte	 05FE	  _TEXT	
